@@ -7,6 +7,7 @@ var userData;
 var readOnly = false;
 var mediaDrive;
 var delayedAssembleTimeout = null;
+var currentHardware = null;
 
 urlParams = {};
 (function () {
@@ -20,9 +21,44 @@ urlParams = {};
 	   urlParams[d(e[1])] = d(e[2]);
 })();
 
+if(typeof console == "undefined") {
+	console = {log: function(){}}
+}
+
+
 $(document).ready(function(){	
 	init();
 });
+
+HardwareInfo = {
+	"lem1820": { 
+		shortName: "LEM1802 Display",
+		klass: Monitor,
+	},
+	"sped3": { 
+		shortName: "SPED-3 Display",
+		klass: SPED3,
+	},
+	"clock": { 
+		shortName: "Generic Clock",
+		klass: Clock,
+	},
+	"keyboard": { 
+		shortName: "Generic Keyboard",
+		klass: Keyboard,
+	},
+	"hmd2043": { 
+		shortName: "HMD2043 Media Drive",
+		klass: HMD2043,
+	}
+};
+HardwareSettings = function() {
+	this.lem1820 = 1;
+	this.sped3 = 0;
+	this.clock = 1;
+	this.keyboard = 1;
+	this.hmd2043 = 1;
+}
 
 function init() {
 	$("#debug_button").button({ icons: { primary: "ui-icon-play" } });
@@ -88,7 +124,7 @@ function init() {
 		modal: true, 
 		autoOpen: false, 
 		resizable: false,
-		minWidth: 340,
+		minWidth: 420,
 		buttons: { 
 			"Close": function() {  
 				$(this).dialog("close"); 
@@ -102,6 +138,34 @@ function init() {
 		}
 	});
 	$("#cpu_speed_values").children().first().addClass("ui-selected");
+	
+	for(var hwId in HardwareInfo) {
+		var str = "<div class=\"settings_label\">" + HardwareInfo[hwId].shortName + ":</div>"
+		str += "<div id=\"" + hwId + "_value\" class=\"hardware_value settings_value\">";
+		str += " <span>Off</span> <span>On</span> ";
+		str += "</div>"
+		str += "<div class=\"clear\"></div>";
+		$("#hardware_settings").append(str);
+	}
+	$(".hardware_value").selectable({
+		selected: function(event, ui) { 
+			hardwareSettingsChanged();
+		}
+	});
+	
+	
+	$("#help_dialog").dialog({ 
+		modal: true, 
+		autoOpen: false, 
+		resizable: false,
+		minWidth: 640,
+		buttons: { 
+			"Close": function() {  
+				$(this).dialog("close"); 
+				editor.focus();
+			}
+		} 
+	});
 	
 	
 	$("#listing").scroll(updateDebuggerLine);
@@ -139,6 +203,9 @@ function init() {
 			$("#watches_list").data("selected", ui.selected.id);
 		}
 	});
+	$("#help_button").click(function() { 
+		help();
+	});
 
 	editor = ace.edit("editor");
 	editor.setTheme("ace/theme/monokai");
@@ -174,15 +241,6 @@ function init() {
 	emulator.async = true;
 	emulator.verbose = false;
 	emulator.paused = true;
-	var m = new Monitor(emulator);
-	mediaDrive = new HMD2043(emulator);
-	document.getElementById("monitor").appendChild(m.getDOMElement());
-	document.getElementById("media-drive").appendChild(mediaDrive.getDOMElement());
-	
-	emulator.devices.push(m);
-	emulator.devices.push(new Keyboard(emulator));
-	emulator.devices.push(new Clock(emulator));
-	emulator.devices.push(mediaDrive);
 	
 	_debugger = new Debugger(emulator);
 	_debugger.onStep = function(location) {
@@ -210,11 +268,14 @@ function init() {
 		userData = { 
 			fileSaved: false,
 			files: { },
+			hardware: { },
 			last: null
 		};
 	}
 	userData.watches = userData.watches || [];
-	
+	userData.hardware = userData.hardware || {};
+	currentHardware = new HardwareSettings();
+	reloadHardware();
 	
 	if(urlParams["program"]) {
 		if(!urlParams["clone"])
@@ -222,8 +283,13 @@ function init() {
 	
 		// load specified program if an ID was provided
 		load(urlParams["program"]).success(function(data) { 
-			editor.getSession().setValue(data)
-			assemble(data);
+			userData.last = null;
+			editor.getSession().setValue(data.program);
+			if(data.hardware)
+				currentHardware = JSON.parse(data.hardware);
+			else currentHardware = new HardwareSettings();
+			assemble(data.program);
+			reloadHardware();
 			
 			if(readOnly) 
 				startDebugger();
@@ -275,6 +341,8 @@ function doSave(filename) {
 	userData.last = filename;
 	userData.fileSaved = true;
 	userData.files[filename] = editor.getSession().getValue();
+	userData.hardware[filename] = currentHardware;
+
 	$("#editor_file_name").html(filename);
 	
 	persist();
@@ -317,6 +385,8 @@ function openFile(filename) {
 		userData.fileSaved = true;
 		editor.getSession().setValue(f);
 		$("#editor_file_name").html(filename);
+		currentHardware = userData.hardware[filename] || (new HardwareSettings());
+		reloadHardware();
 	}
 		
 	return (f != null);
@@ -327,6 +397,8 @@ function _new() {
 	userData.last = null;
 	editor.getSession().setValue("");
 	$("#editor_file_name").html("Source");
+	currentHardware = new HardwareSettings();
+	reloadHardware();
 	
 	editor.focus();
 	_gaq.push(['_trackEvent', "editor", "new"]);
@@ -340,6 +412,7 @@ function post() {
 	var id = randomId();
 	_gaq.push(['_trackEvent', "editor", "post", id]);
 	var data  = "program_id=" + id + "&program=" + encodeURIComponent(editor.getSession().getValue());
+	data += "&hardware=" + encodeURIComponent(JSON.stringify(currentHardware));
 	var win = window.open("about:blank", '_blank');
 	return $.ajax({
 		url: 			"/program",
@@ -358,9 +431,9 @@ function post() {
 
 function load(programId) {
 	return $.ajax({
-		url: 			"/program/" + programId,
+		url: 			"/program.json/" + programId,
 		context:		this,
-		dataType: 		"text"
+		dataType: 		"json"
 	});
 	_gaq.push(['_trackEvent', "editor", "load", programId]);
 }
@@ -372,8 +445,27 @@ function clone() {
 }
 
 function openSettings() {
+	for(var hwId in currentHardware) {
+		var spans = $("#"+hwId+"_value").children();
+		if(currentHardware[hwId] == 1) {
+			spans.first().removeClass("ui-selected");
+			spans.last().addClass("ui-selected");
+		}
+		else {
+			spans.first().addClass("ui-selected");
+			spans.last().removeClass("ui-selected");
+		}
+	}
+
 	$("#settings_dialog").dialog("open");
 	_gaq.push(['_trackEvent', "debugger", "settings"]);
+}
+
+function hardwareSettingsChanged() {
+	for(var hwId in currentHardware) {
+		currentHardware[hwId] = $("#"+hwId+"_value").find(".ui-selected").text() == "On" ? 1 : 0;
+	}
+	reloadHardware();
 }
 
 function randomId() {
@@ -381,28 +473,30 @@ function randomId() {
 }
 
 function assemble(data) {
-	var tokenized = Tokenizer.tokenize(data || editor.getSession().getValue());
-	listing = Assembler.compile(tokenized.lines);
+	$("#assembly").empty();
+
+	var input = data || editor.getSession().getValue();
+	listing = Assembler.compileSource(input);
 	
-	var errors = (new Array()).concat(tokenized.errors, listing.errors);
+	var str = "";
+	for(var i = 0; i < listing.messages.length; i++) {
+		str += "<div class='output_message'>" + listing.messages[i] + "</div>";
+	}
 	
-	//$("#assembly").html(listing.htmlFormat());
-	
-	if(errors.length == 0) {
-		$("#assembly").html("OK");
-		$("#assembly").css("background", "none");
+	if(listing.errors.length == 0) {
+		str += "<div class='output_message'>OK</div>";
+		$("#assembly").removeClass("failed");
 	}
 	else {
-		$("#assembly").css("background", "#bc3329");
-		var str = "";
-		for(var i = 0; i < errors.length; i++) {
-			str += "<div onclick='gotoLine("+errors[i].line+")' style='padding: 4px; margin-bottom: 3px; cursor: pointer;'>";
-			str += "Line " + errors[i].line + ": ";
-			str += errors[i].message;
+		$("#assembly").addClass("failed");
+		for(var i = 0; i < listing.errors.length; i++) {
+			str += "<div onclick='gotoLine("+listing.errors[i].line+")' class='output_error'>";
+			str += "Line " + listing.errors[i].line + ": ";
+			str += listing.errors[i].message;
 			str += "</div>";
 		}
-		$("#assembly").html(str);
 	}
+	$("#assembly").append(str);
 	
 	$("#output").html(listing.bytecodeText());
 }
@@ -410,6 +504,47 @@ function assemble(data) {
 function gotoLine(line) {
 	editor.gotoLine(line);
 	editor.focus();
+}
+
+function reloadHardware() {
+	$("#monitor").empty();
+	$("#media-drive").empty();
+	mediaDrive = null;
+	emulator.devices = [];
+	
+	var monitor, sped3;
+	
+	if(currentHardware["lem1820"]) {
+		monitor = new Monitor(emulator);
+		document.getElementById("monitor").appendChild(monitor.getDOMElement());
+		emulator.devices.push(monitor);
+	}
+	if(currentHardware["sped3"]) {
+		sped3 = new SPED3(emulator);
+		document.getElementById("monitor").appendChild(sped3.getDOMElement());
+		emulator.devices.push(sped3);
+	}
+	if(currentHardware["keyboard"]) {
+		emulator.devices.push(new Keyboard(emulator));
+	}
+	if(currentHardware["clock"]) {
+		emulator.devices.push(new Clock(emulator));
+	}
+	
+	if(currentHardware["hmd2043"]) {
+		mediaDrive = new HMD2043(emulator);
+		document.getElementById("media-drive").appendChild(mediaDrive.getDOMElement());
+		emulator.devices.push(mediaDrive);
+		$("#toggle_media_button").show();
+	}
+	else
+		$("#toggle_media_button").hide();
+		
+	if(monitor && sped3) {
+		monitor.setZoom(1);
+		monitor.getDOMElement().style.marginRight = "3px";
+		sped3.setZoom(1);
+	}
 }
 
 function startDebugger() {
@@ -492,6 +627,8 @@ function startDebugger() {
 	emulator.run(listing.bytecode());
 	updateRegisterWindow();
 	refreshWatches();
+	$(".hardware_value").find("span").addClass("disabled");
+	$(".hardware_value").selectable("option", "disabled", true);
 	
 	_gaq.push(['_trackEvent', "debugger", "start"]);
 }
@@ -514,6 +651,8 @@ function stopDebugger() {
 	
 	$("#editing_windows").show();
 	$("#debugging_windows").hide();
+	$(".hardware_value").find("span").removeClass("disabled");
+	$(".hardware_value").selectable("option", "disabled", false);
 	
 	editor.focus();
 	
@@ -852,4 +991,10 @@ function about() {
 	document.activeElement.blur();
 	
 	_gaq.push(['_trackEvent', "general", "about"]);
+}
+
+function help() {
+	$("#help_dialog").dialog("open");
+	document.activeElement.blur();
+	_gaq.push(['_trackEvent', "general", "help"]);
 }
