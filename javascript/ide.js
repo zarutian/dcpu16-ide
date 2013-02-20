@@ -116,7 +116,7 @@ function init() {
 	});
 	$("#selectable_file_list").selectable({
 		selected: function(event, ui) { 
-			$("#selectable_file_list").data("selected", event.srcElement.innerHTML);
+			$("#selectable_file_list").data("selected", $(event.srcElement).data("filename"));
 		}
 	});
 	
@@ -234,7 +234,7 @@ function init() {
 		if (e.clientX > 25 + target.getBoundingClientRect().left)
 			return;
 
-		toggleBreakpoint(e.row);
+		toggleBreakpoint(editorLineToListingLine(e.row));
 	});
 	
 	emulator = new Emulator();
@@ -353,11 +353,18 @@ function persist() {
 }
 
 function _open() {
+	popupateOpenFiles();
+	
+	$("#open_dialog").dialog("open");
+	_gaq.push(['_trackEvent', "editor", "open"]);
+}
+
+function popupateOpenFiles() {
 	var str = "";
 	for(var f in userData.files) {
-		str += "<li class='ui-widget-content'>";
+		str += "<li class='ui-widget-content' data-filename='"+f+"'>";
 		str += f;
-		//str += "<div style='margin-top: -3px;' class='right ui-icon ui-icon-trash'></div>";
+		str += "<div style='margin-top: -3px;' class='right ui-icon ui-icon-trash'></div>";
 		str += "</li>";
 	}
 	if(str.length == 0)
@@ -366,13 +373,19 @@ function _open() {
 	$("#selectable_file_list").data("selected", null);
 	
 	$("#selectable_file_list").find(".ui-icon-trash").mousedown(function(evt) { 
-		evt.preventDefault();
-		console.log($(this).parent().text());
+		evt.stopPropagation();
+		
+		var filename = $(this).parent().text();
+		if(confirm("Do you really want to delete the file: " + filename + "?")) {
+			console.log("deleting " + filename);
+			delete userData.files[filename];
+			persist();
+			_gaq.push(['_trackEvent', "editor", "deleteFile"]);
+			
+			popupateOpenFiles();
+		}
 		
 	});
-	
-	$("#open_dialog").dialog("open");
-	_gaq.push(['_trackEvent', "editor", "open"]);
 }
 
 function openFile(filename) {
@@ -476,7 +489,7 @@ function assemble(data) {
 	$("#assembly").empty();
 
 	var input = data || editor.getSession().getValue();
-	listing = Assembler.compileSource(input);
+	listing = Assembler.compileSource(input, userData.files);
 	
 	var str = "";
 	for(var i = 0; i < listing.messages.length; i++) {
@@ -723,7 +736,24 @@ function realtimeUpdate() {
 	updateCycles();
 }
 
+function listingLineToEditorLine(listingLineNumber) {
+	for(editorLine in listing.lineMap) {
+		if(listing.lineMap[editorLine] == listingLineNumber)
+			return editorLine;
+	}
+	return -1;
+}
+
+function editorLineToListingLine(editorLineNumber) {
+	if(listing.lineMap[editorLineNumber] == null) 
+		return -1;
+	return listing.lineMap[editorLineNumber];
+}
+
+// expects a listing line number
 function toggleBreakpoint(lineNumber) {
+	if(lineNumber < 0) return;
+	
 	console.log("Toggle breakpoint on line " + lineNumber);
 		
 	// only allow breakpoints on lines that have actual commands
@@ -732,10 +762,13 @@ function toggleBreakpoint(lineNumber) {
 		_debugger.toggleBreakpoint(listing.lines[lineNumber].offset, lineNumber);
 		
 		
-		if(editor.session.getBreakpoints()[lineNumber])
-			editor.session.clearBreakpoint(lineNumber);
-		else
-			editor.session.setBreakpoint(lineNumber);
+		var editorLine = listingLineToEditorLine(lineNumber);
+		if(editorLine >= 0) {
+			if(editor.session.getBreakpoints()[editorLine])
+				editor.session.clearBreakpoint(editorLine);
+			else	
+				editor.session.setBreakpoint(editorLine);
+		}
 	}
 	
 	_gaq.push(['_trackEvent', "debugger", "toggleBreakpoint"]);
