@@ -1,4 +1,3 @@
-
 // http://pastebin.com/raw.php?i=Q4JvQvnM
 // https://github.com/gibbed/0x10c-Notes
 
@@ -307,7 +306,6 @@ function Emulator() {
 			console.log("Warning: stack underflow");
 			
 		var val = this.emulator.RAM[this.contents] || 0;
-		this.emulator.RAM[this.contents] = 0;	// TODO: should the emualtor alter the memory location when it is POPed?
 		this.contents = (this.contents + 1) & 0xffff;
 		return val;
 	};
