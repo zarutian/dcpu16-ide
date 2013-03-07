@@ -66,8 +66,7 @@ function Monitor(_emulator) {
 	this.context = this.canvas.getContext('2d');
 	this.blinkGlyphsOn = true;
 	
-	this.bootScreen = new Image();
-    this.bootScreen.src = "/images/boot-screen.png";
+	this.bootScreen = Utils.createImage("./images/boot-screen.png");
 }
 
 Monitor.prototype.init = function() { 
