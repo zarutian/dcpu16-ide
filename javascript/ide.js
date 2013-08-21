@@ -125,7 +125,7 @@ function init() {
 		modal: true, 
 		autoOpen: false, 
 		resizable: false,
-		minWidth: 420,
+		minWidth: 520,
 		buttons: { 
 			"Close": function() {  
 				$(this).dialog("close"); 
@@ -649,6 +649,7 @@ function startDebugger() {
 
 function stopDebugger() {
 	emulator.reboot();
+	updateCycles(true);
 
 	$("#debug_button").show();
 	$("#save_button").show();
@@ -694,6 +695,7 @@ function reset() {
 	emulator.reboot();
 	emulator.paused = true;
 	emulator.run(listing.bytecode());
+	updateCycles(true);
 	
 	_gaq.push(['_trackEvent', "debugger", "reset"]);
 }
@@ -997,9 +999,9 @@ function removeWatch() {
 }
 
 lastCycleUpdate = { time: 0, cycle: 0 };
-function updateCycles() {
+function updateCycles(force) {
 	// bail if we're still on the same cycle
-	if(lastCycleUpdate.cycle == emulator.CPU_CYCLE) return;
+	if(!force && lastCycleUpdate.cycle == emulator.CPU_CYCLE) return;
 	
 	var val = "";
 	

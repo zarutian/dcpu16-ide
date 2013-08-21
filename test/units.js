@@ -19,6 +19,7 @@ function units() {
 			// register tests
 			Utils.makeInstruction(OPERATION_SET, Literals.L_2, REGISTER_A),
 			Utils.makeInstruction(OPERATION_SET, Literals.L_10, REGISTER_B),
+			Utils.makeInstruction(OPERATION_MUL, Literals.L_10, REGISTER_B),
 			Utils.makeInstruction(OPERATION_SET, REGISTER_B, REGISTER_C),
 			
 			// register + RAM tests
@@ -31,7 +32,7 @@ function units() {
 			
 			// next word tests
 			Utils.makeInstruction(OPERATION_SET, Values.NEXT_WORD_LITERAL, REGISTER_X), 0x2222,
-			Utils.makeInstruction(OPERATION_SET, Values.NEXT_WORD_VALUE, REGISTER_Y), 0x0a,
+			Utils.makeInstruction(OPERATION_SET, Values.NEXT_WORD_VALUE, REGISTER_Y), 0x64,
 			Utils.makeInstruction(OPERATION_SET, Values.NEXT_WORD_LITERAL, Values.NEXT_WORD_VALUE), 0x3333, 0x0b
 		];
 		
@@ -40,11 +41,11 @@ function units() {
 		e.run(program);
 		
 		equal(e.Registers.A.get(), 2, "Register A set correctly");
-		equal(e.Registers.B.get(), 10, "Register B set correctly");
-		equal(e.Registers.C.get(), 10, "Register C set to value of B");
+		equal(e.Registers.B.get(), 100, "Register B set correctly");
+		equal(e.Registers.C.get(), 100, "Register C set to value of B");
 		
-		equal(e.RAM[0x0a], 3, "RAM at location 10 set to value of 3");
-		equal(e.Registers.I.get(), e.RAM[0x0a], "Register I set to RAM at location 10");
+		equal(e.RAM[0x64], 3, "RAM at location 100 set to value of 3");
+		equal(e.Registers.I.get(), e.RAM[0x64], "Register I set to RAM at location 100");
 		
 		equal(e.RAM[0x05], 4, "RAM at location 5 set to value of 4");
 		equal(e.Registers.J.get(), e.RAM[0x05], "Register J set to RAM at location 5");
@@ -805,6 +806,20 @@ function units() {
 		var output = [ 0x0301, 0x60e1, 0x64a2, 0x0301, 
 						0x8b81, 0x4032, 0x0003, 0x7f81, 
 						0x0003   ];
+						
+		var actual = Assembler.compileSource(input).bytecode();
+		ok(compareArrays(output, actual), "Output is correct");
+	});
+	
+	test("Assembly Test 3 (stack)", function() { 
+		var input = "; test app #3\n" + 
+					 "SET PUSH, 1\n" +
+					 "SET A, POP\n" +
+					 "ADD Z, PEEK\n" +
+					 "ADD Y, PICK\n" +
+					 "DAT 1\n";
+		
+		var output = [ 0x8b01, 0x6001, 0x64a2, 0x6882, 0x0001 ];
 						
 		var actual = Assembler.compileSource(input).bytecode();
 		ok(compareArrays(output, actual), "Output is correct");
